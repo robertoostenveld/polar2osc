@@ -1,16 +1,29 @@
+"""
+This script is an adaptation of the polarbelt module from the EEGsynth software, see <https://github.com/eegsynth/eegsynth>.
+
+Copyright (C) 2024, Robert Oostenveld
+Copyright (C) 2017-2024 EEGsynth project
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""
+
 import sys
 import asyncio
 from bleak import BleakClient, BleakScanner
 from pythonosc import udp_client
 
-OSC_HOST = "localhost"
-OSC_PORT = 8000
-
-ADDRESS = []
-ADDRESS.append("818AFE80-3652-4DBA-5192-88128E5FAB3D")
+# the data can be sent simultaneously to two (or more) OSC receivers, for example to the osc2similarity.py and to TouchDesigner
+OSC_HOST = ["localhost", "localhost"]
+OSC_PORT = [8000, 8001]
 
 # you can add multiple Polar H9 addresses here
 # for testing purposes you can also add the same Polar H9 address multiple times
+ADDRESS = []
+ADDRESS.append("818AFE80-3652-4DBA-5192-88128E5FAB3D")
 # ADDRESSES.append(...)
 # ADDRESSES.append(...)
 
@@ -20,6 +33,9 @@ ADDRESS.append("818AFE80-3652-4DBA-5192-88128E5FAB3D")
 
 UUID_HEARTRATE = "2A37"
 UUID_MODEL_NUMBER = "2A24"
+
+clients = []    # list of OSC clients
+belts = []      # list of Polar H9 belts
 
 class PolarClient:
 
@@ -96,23 +112,24 @@ class PolarClient:
 
         # send the heart rate and each of the inter-beat intervals to the OSC server
         # the index (0, 1, 2, ...) is used to distinguish between multiple belts
-        global osc
         if hr:
             oscaddress = "/polar/{0}/hr".format(self.index)
-            osc.send_message(oscaddress, hr)
+            for osc in clients:
+                osc.send_message(oscaddress, hr)
         for ibi in ibis:
             oscaddress = "/polar/{0}/ibi".format(self.index)
-            osc.send_message(oscaddress, ibi)
+            for osc in clients:
+                osc.send_message(oscaddress, ibi)
 
 
 if __name__ == "__main__":
-    global osc
-    print('Connecting to OSC server on {0}:{1} ...'.format(OSC_HOST, OSC_PORT))
-    osc = udp_client.SimpleUDPClient(OSC_HOST, OSC_PORT) 
-    print('Connected to OSC server')
+    # the following section connects multiple OSC clients
+    for host, port in zip(OSC_HOST, OSC_PORT):
+        print('Connecting to OSC server on {0}:{1} ...'.format(host, port))
+        clients.append(udp_client.SimpleUDPClient(host, port))
+        print('Connected to OSC server')
 
-    # the followingsection processes multiple Polar H9 belts
-    belts = []
+    # the following section connects multiple Polar H9 belts
     try:
         for addr, index in zip(ADDRESS, range(len(ADDRESS))):
             first = (index==0)  # only do the BLE scan for the first belt

@@ -1,6 +1,8 @@
 # POLAR2OSC
 
-This application receives heart-rate and inter-beat interval data over Bluetooth from one or multiple Polar H9 belts. It transmits these using OSC (Open Sound Control) to another process that can analyze and/or visualize the heart data.
+The `polar2osc.py` script receives heart-rate and inter-beat interval data over Bluetooth from one or multiple Polar H9 belts. It transmits these using OSC (Open Sound Control) to another process that can analyze and/or visualize the heart data.
+
+The `osc2similarity.py` script receives each update of the heart rate and inter-beat-interval, organizes it as a time series in a matrix, and once per second computes the similarity between the time series. The resulting similarity scores for the heart rate and inter-beat-interval time series are sent using OSC to TouchDesigner.
 
 ## Installation
 
