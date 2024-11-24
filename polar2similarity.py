@@ -27,7 +27,6 @@ OUTGOING_PORT = 8000
 MAXBELTS = 20   # how many belts to keep track of
 NSAMPLES = 30   # how many data samples to keep track of
 INTERVAL = 1.0  # update interval in seconds between data samples
-ALPHA = 0.5     # smoothing factor (between 0 and 1) for the exponential moving average, large means short memory, small means large memory, see https://en.wikipedia.org/wiki/Exponential_smoothing
 
 #############################################################################
 # no changes should be needed below this line
