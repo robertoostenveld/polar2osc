@@ -1,7 +1,7 @@
 """
 This script is an adaptation of the polarbelt module from the EEGsynth software, see <https://github.com/eegsynth/eegsynth>.
 
-Copyright (C) 2024, Robert Oostenveld
+Copyright (C) 2024, Robert Oostenveld 
 Copyright (C) 2017-2024 EEGsynth project
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
@@ -16,7 +16,7 @@ import asyncio
 from bleak import BleakClient, BleakScanner
 from pythonosc import udp_client
 
-# the data can be sent simultaneously to two (or more) OSC receivers, for example to the osc2similarity.py and to TouchDesigner
+# the data can be sent simultaneously to multiple OSC receivers, for example to the osc2similarity.py script and to TouchDesigner
 OSC_HOST = ["localhost", "localhost"]
 OSC_PORT = [8000, 8001]
 
@@ -41,11 +41,13 @@ class PolarClient:
 
     def __init__(self, address, index, scan=False):
         self.address = address      # the address is a string like 818AFE80-3652-4DBA-5192-88128E5FAB3D
-        self.index = index          # the index is used to distinguish between multiple belts
+        self.index = index          # the one-based index is used to distinguish between multiple belts/people
+        self.previous_ibi = None    # the previous interbeat interval
 
         # BLE client
-        self.loop = asyncio.get_event_loop()
-        self.ble_client= BleakClient(self.address, loop=self.loop)
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.ble_client = BleakClient(self.address, loop=self.loop)
 
         if scan:
             # show a list of all available devices, only needed once
@@ -110,17 +112,25 @@ class PolarClient:
         # give feedback to the console
         print("belt={0}, hr={1}, ibis={2}".format(self.index, hr, ibis))
 
-        # send the heart rate and each of the inter-beat intervals to the OSC server
-        # the index (0, 1, 2, ...) is used to distinguish between multiple belts
+        # send the heart rate data to the OSC receivers
         if hr:
             oscaddress = "/polar/{0}/hr".format(self.index)
-            for osc in clients:
-                osc.send_message(oscaddress, hr)
+            for recipient in clients:
+                recipient.send_message(oscaddress, hr)
         for ibi in ibis:
             oscaddress = "/polar/{0}/ibi".format(self.index)
-            for osc in clients:
-                osc.send_message(oscaddress, ibi)
-
+            for recipient in clients:
+                recipient.send_message(oscaddress, ibi)
+    
+            # compute the heart rate variability (HRV) in milliseconds
+            if self.previous_ibi:
+                hrv = abs(ibi - self.previous_ibi)
+                oscaddress = "/polar/{0}/hrv".format(self.index)
+                for recipient in clients:
+                    recipient.send_message(oscaddress, hrv)
+            # remember the current interbeat interval for the next iteration
+            self.previous_ibi = ibi
+    
 
 if __name__ == "__main__":
     # the following section connects multiple OSC clients
@@ -133,7 +143,7 @@ if __name__ == "__main__":
     try:
         for addr, index in zip(ADDRESS, range(len(ADDRESS))):
             first = (index==0)  # only do the BLE scan for the first belt
-            belts.append(PolarClient(addr, index, scan=first))
+            belts.append(PolarClient(addr, index+1, scan=first))    # use a one-based index for the belts
         for belt in belts:
             belt.start()
         for belt in belts:

@@ -1,5 +1,5 @@
 """
-This script computes how similar the time series are of the heart rate and inter-beat-interval of multiple people wearing a Polar H9 belt.
+This script computes the similarity of the heart rate over multiple people wearing a Polar H9 belt.
 
 Copyright (C) 2024, Robert Oostenveld
 
@@ -16,101 +16,128 @@ from pythonosc.osc_server import AsyncIOOSCUDPServer
 from pythonosc.dispatcher import Dispatcher
 from pythonosc.udp_client import SimpleUDPClient
 
+# this is the local OSC address for receiving the heart rate and interbeat-interval data
 INCOMING_HOST = "localhost"
-INCOMING_PORT=8001     # for receiving the heart rate and inter-beat-interval data
+INCOMING_PORT = 8001
+
+# this is the remote OSC address to which the similarity scores are sent
 OUTGOING_HOST = "localhost"
-OUTGOING_PORT=8000     # for sending the similarity scores
+OUTGOING_PORT = 8000
 
 MAXBELTS = 20   # how many belts to keep track of
-MAXTIME = 30    # how many seconds of data to keep track of
+NSAMPLES = 30   # how many data samples to keep track of
+INTERVAL = 1.0  # update interval in seconds between data samples
 ALPHA = 0.5     # smoothing factor (between 0 and 1) for the exponential moving average, large means short memory, small means large memory, see https://en.wikipedia.org/wiki/Exponential_smoothing
 
+#############################################################################
+# no changes should be needed below this line
+#############################################################################
+
 NBELTS = 0      # this will automatically increment when more belts are seen
-IBI = []        # list of the latest inter-beat intervals, one for each belt
-HR = []         # list of the latest heart rates, one for each belt
-IBI_MEAN = []   # exponential moving average of the inter-beat intervals
-HR_MEAN = []    # exponential moving average of the heart rate
+HR = []         # list of the most recent heart rates, one for each belt
+IBI = []        # list of the most recent interbeat intervals, one for each belt
+HRV = []        # list of the most recent heart rate variabilities, one for each belt
 ACTIVE = []     # boolean list of the belts that are currently active
+
+
+def similarity(x):
+    # compute the similarity between the time series in x
+    mx = np.ma.masked_array(x, mask=np.isnan(x))        # make a masked array to ignore the missing values, indicated by NaN
+    cx = np.ma.cov(mx)                                  # compute the covariance matrix                    
+    u, s, vh = np.linalg.svd(cx, full_matrices=False)   # compute the singular value decomposition
+    s = s / np.sum(s)                                   # normalize the singular values
+    return s.tolist()                                   # return as a plain Python list with floats
 
 
 def incoming_osc_handler(address, *args):
     print(f"{address}: {args}")
 
-    polar, belt, hr_or_ibi = address.split("/")
-    belt = int(belt)
+    # incoming messages are expected to be in the format /polar/X/hr or /polar/X/hrv, where X is the belt index (one-based)
+    polar, belt, type = address.split("/")
+
+    if type not in ["hr", "ibi", "hrv"]:
+        # ignore this message
+        return
+    
+    try:
+        # the one-based belt index (1, 2, ...) is used to distinguish between multiple belts/people
+        belt = int(belt)
+    except ValueError:
+        # ignore this message alltogether
+        return
+    
     while belt>NBELTS:
         # ensure that the lists are long enough to hold the data for the new belt
-        IBI.append(None)
         HR.append(None)
-        IBI_MEAN.append(None)
-        HR_MEAN.append(None)
+        IBI.append(None)
+        HRV.append(None)
         ACTIVE.append(False)
         NBELTS += 1
 
-    # the following uses a 0-based index
+    # the following code uses a zero-based index
     belt = belt - 1
-    if hr_or_ibi == "hr":
-        if HR_MEAN[belt] is None:
-            # this is the first value
-            HR_MEAN[belt] = args[0]
-        else:
-            # update the exponential moving average with the latest value
-            HR_MEAN[belt] = ALPHA*args[0] + (1-ALPHA)*HR_MEAN[belt]
-        # remember the latest value
+
+    if type == "hr":
         HR[belt] = args[0]
-        
-    elif hr_or_ibi == "ibi":
-        if IBI_MEAN[belt] is None:
-            # this is the first value
-            IBI_MEAN[belt] = args[0]
-        else:
-            # update the exponential moving average with the latest value
-            IBI_MEAN[belt] = ALPHA*args[0] + (1-ALPHA)*IBI_MEAN[belt]
-        # remember the latest value
+    elif type == "ibi":
         IBI[belt] = args[0]
+    elif type == "hrv":
+        HRV[belt] = args[0]
+
     # flag this belt as active
     ACTIVE[belt] = True
 
 
-dispatcher = Dispatcher()
-dispatcher.map("/polar/*/*", incoming_osc_handler)
-
-client = SimpleUDPClient(OUTGOING_HOST, OUTGOING_PORT)  # Create an OSC client that will send the similarity scores
-
-
 async def loop_main():
+    global client
+
     # these are matrices with the time series of the data, one row for each belt
-    data_hr  = np.zeros((MAXBELTS, MAXTIME), dtype=np.float64)
-    data_ibi = np.zeros((MAXBELTS, MAXTIME), dtype=np.float64)
+    # missing values are indicated by NaN
+    data_hr  = np.zeros((MAXBELTS, NSAMPLES), dtype=np.float64) + np.nan
+    data_ibi = np.zeros((MAXBELTS, NSAMPLES), dtype=np.float64) + np.nan
+    data_hrv = np.zeros((MAXBELTS, NSAMPLES), dtype=np.float64) + np.nan
 
     while True:
-        # this runs at a fixed rate of once per second
-        await asyncio.sleep(1)
+        # the subsequent code runs once per second
+        await asyncio.sleep(INTERVAL)
 
-        # update the matrices with the latest values, implemented as a rolling buffer
-        selection = [i for i in range(NBELTS) if ACTIVE[i]]
+        # move all the previous values one column to the right
         data_hr = np.roll(data_hr, 1, axis=1)
-        data_ibi = np.roll(data_ibi, 1, axis=1)
-        print("number of belts:", len(selection))
+        data_hrv = np.roll(data_hrv, 1, axis=1)
+        data_ibi = np.roll(data_hrv, 1, axis=1)
+    
+        selection = [i for i in range(NBELTS) if ACTIVE[i]]
+        print("number of active belts:", len(selection))
         for i in selection:
-            # put the latest value in the first column, after subtracting the mean
-            data_hr[i, 1] = HR[i] - HR_MEAN[i]
-            data_ibi[i, 1] = IBI[i] - IBI_MEAN[i]
+            # copy the latest known value into the first column
+            data_hr[i, 1] = HR[i]
+            data_ibi[i, 1] = IBI[i]
+            data_hrv[i, 1] = HRV[i]
 
         # compute how similar the heart rate time series are 
-        u, s, vh = np.linalg.svd(np.cov(data_hr[selection,:]), full_matrices=False)
-        s = s / np.sum(s)
+        s = similarity(data_hr[selection,:])
         client.send_message("/polar/similarity/hr", s)
+        print("similarity in HR: {0}".format(s))
 
-        # compute how similar the inter-beat-interval time series are 
-        u, s, vh = np.linalg.svd(np.cov(data_ibi[selection,:]), full_matrices=False)
-        s = s / np.sum(s)
+        # compute how similar the interbeat interval time series are 
+        s = similarity(data_ibi[selection,:])
         client.send_message("/polar/similarity/ibi", s)
+        print("similarity in IBI: {0}".format(s))
+
+        # compute how similar the heart rate variability time series are 
+        s = similarity(data_hrv[selection,:])
+        client.send_message("/polar/similarity/hrv", s)
+        print("similarity in HRV: {0}".format(s))
 
 
 async def init_main():
-    server = AsyncIOOSCUDPServer((INCOMING_HOST, INCOMING_PORT), dispatcher, asyncio.get_event_loop())
+    global client
+
+    dispatcher = Dispatcher()
+    dispatcher.map("/polar/*/*", incoming_osc_handler)
+    server = AsyncIOOSCUDPServer((INCOMING_HOST, INCOMING_PORT), dispatcher, asyncio.get_event_loop()) # this is for receiving the heart rate and interbeat interval data
     transport, protocol = await server.create_serve_endpoint()  # Create datagram endpoint and start serving
+    client = SimpleUDPClient(OUTGOING_HOST, OUTGOING_PORT)  # this is for sending the similarity scores
     await loop_main()   # Enter the main loop of the program
     transport.close()   # Clean up the server
     client.close()      # Clean up client
