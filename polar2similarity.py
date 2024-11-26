@@ -38,18 +38,27 @@ IBI = []        # list of the most recent interbeat intervals, one for each belt
 HRV = []        # list of the most recent heart rate variabilities, one for each belt
 ACTIVE = []     # boolean list of the belts that are currently active
 
+def withdecimals(s):
+    '''
+    This takes a list of floats and returns a string with the floats rounded to 2 decimal places
+    '''
+    s = ', '.join('%.02f' % elem for elem in s) # convert the list of floats to a string with 2 decimal places
+    return f'[{s}]'                             # return the string with square brackets
 
 def similarity(x):
-    if x.shape[0]==1:
-        # the algorithm below does not work with only one time series
-        return [1.0]
-    else:
+    try:
         # compute the similarity between the time series in x
         mx = np.ma.masked_array(x, mask=np.isnan(x))        # make a masked array to ignore the missing values, indicated by NaN
         cx = np.ma.cov(mx)                                  # compute the covariance matrix                    
         u, s, vh = np.linalg.svd(cx, full_matrices=False)   # compute the singular value decomposition
         s = s / np.sum(s)                                   # normalize the singular values
         return s.tolist()                                   # return as a plain Python list with floats
+    except:
+        # the algorithm below does not work with only one time series
+        # the algorithm will also fail if the time series are too short
+        s = np.ones(x.shape[0]).astype(np.float64)
+        s = s / np.sum(s)                                   # normalize the singular values
+        return s.tolist()
 
 
 def incoming_osc_handler(address, *args):
@@ -128,17 +137,17 @@ async def loop_main():
         # compute how similar the heart rate time series are 
         s = similarity(data_hr[selection,:])
         client.send_message("/polar/similarity/hr", s)
-        print("similarity in HR:  {0}".format(s))
+        print("similarity in HR:  {0}".format(withdecimals(s)))
 
         # compute how similar the interbeat interval time series are 
         s = similarity(data_ibi[selection,:])
         client.send_message("/polar/similarity/ibi", s)
-        print("similarity in IBI: {0}".format(s))
+        print("similarity in IBI: {0}".format(withdecimals(s)))
 
         # compute how similar the heart rate variability time series are 
         s = similarity(data_hrv[selection,:])
         client.send_message("/polar/similarity/hrv", s)
-        print("similarity in HRV: {0}".format(s))
+        print("similarity in HRV: {0}".format(withdecimals(s)))
 
 
 async def init_main():
