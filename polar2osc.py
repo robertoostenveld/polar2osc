@@ -23,7 +23,9 @@ OSC_PORT = [8000, 10000]
 # you can add multiple Polar H9 addresses here
 # for testing purposes you can also add the same Polar H9 address multiple times
 ADDRESS = []
-ADDRESS.append("818AFE80-3652-4DBA-5192-88128E5FAB3D")
+ADDRESS.append("818AFE80-3652-4DBA-5192-88128E5FAB3D")  # Robert
+# ADDRESS.append("C8BC000D-146F-6939-9C5F-9F657F308E1E")  # Sharon 1
+# ADDRESS.append("8023FA31-F440-FABA-5D50-8A64D06B1EC7")  # Sharon 2
 # ADDRESSES.append(...)
 # ADDRESSES.append(...)
 

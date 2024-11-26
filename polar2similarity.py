@@ -40,17 +40,20 @@ ACTIVE = []     # boolean list of the belts that are currently active
 
 
 def similarity(x):
-    # compute the similarity between the time series in x
-    mx = np.ma.masked_array(x, mask=np.isnan(x))        # make a masked array to ignore the missing values, indicated by NaN
-    cx = np.ma.cov(mx)                                  # compute the covariance matrix                    
-    u, s, vh = np.linalg.svd(cx, full_matrices=False)   # compute the singular value decomposition
-    s = s / np.sum(s)                                   # normalize the singular values
-    return s.tolist()                                   # return as a plain Python list with floats
+    if x.shape[0]==1:
+        # the algorithm below does not work with only one time series
+        return [1.0]
+    else:
+        # compute the similarity between the time series in x
+        mx = np.ma.masked_array(x, mask=np.isnan(x))        # make a masked array to ignore the missing values, indicated by NaN
+        cx = np.ma.cov(mx)                                  # compute the covariance matrix                    
+        u, s, vh = np.linalg.svd(cx, full_matrices=False)   # compute the singular value decomposition
+        s = s / np.sum(s)                                   # normalize the singular values
+        return s.tolist()                                   # return as a plain Python list with floats
 
 
 def incoming_osc_handler(address, *args):
     global NBELTS, HR, IBI, HRV, ACTIVE
-    print(f"{address}: {args}")
 
     # incoming messages are expected to be in the format /polar/X/hr or /polar/X/hrv, where X is the belt index (one-based)
     try:
@@ -110,10 +113,11 @@ async def loop_main():
         data_ibi = np.roll(data_hrv, 1, axis=1)
     
         selection = [i for i in range(NBELTS) if ACTIVE[i]]
-        print("number of active belts:", len(selection))
-
         if len(selection)==0:
+            print("no active belts")
             continue
+        else:
+            print("number of active belts:", len(selection))
 
         for i in selection:
             # copy the latest known value into the first column
@@ -124,7 +128,7 @@ async def loop_main():
         # compute how similar the heart rate time series are 
         s = similarity(data_hr[selection,:])
         client.send_message("/polar/similarity/hr", s)
-        print("similarity in HR: {0}".format(s))
+        print("similarity in HR:  {0}".format(s))
 
         # compute how similar the interbeat interval time series are 
         s = similarity(data_ibi[selection,:])
