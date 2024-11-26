@@ -17,12 +17,12 @@ from pythonosc.dispatcher import Dispatcher
 from pythonosc.udp_client import SimpleUDPClient
 
 # this is the local OSC address for receiving the heart rate and interbeat-interval data
-INCOMING_HOST = "localhost"
-INCOMING_PORT = 8001
+INCOMING_HOST = "127.0.0.1"
+INCOMING_PORT = 8000
 
 # this is the remote OSC address to which the similarity scores are sent
-OUTGOING_HOST = "localhost"
-OUTGOING_PORT = 8000
+OUTGOING_HOST = "127.0.0.1"
+OUTGOING_PORT = 10000
 
 MAXBELTS = 20   # how many belts to keep track of
 NSAMPLES = 30   # how many data samples to keep track of
@@ -49,10 +49,14 @@ def similarity(x):
 
 
 def incoming_osc_handler(address, *args):
+    global NBELTS, HR, IBI, HRV, ACTIVE
     print(f"{address}: {args}")
 
     # incoming messages are expected to be in the format /polar/X/hr or /polar/X/hrv, where X is the belt index (one-based)
-    polar, belt, type = address.split("/")
+    try:
+        dummy, polar, belt, type = address.split("/")
+    except:
+        return
 
     if type not in ["hr", "ibi", "hrv"]:
         # ignore this message
@@ -107,6 +111,10 @@ async def loop_main():
     
         selection = [i for i in range(NBELTS) if ACTIVE[i]]
         print("number of active belts:", len(selection))
+
+        if len(selection)==0:
+            continue
+
         for i in selection:
             # copy the latest known value into the first column
             data_hr[i, 1] = HR[i]
@@ -139,7 +147,6 @@ async def init_main():
     client = SimpleUDPClient(OUTGOING_HOST, OUTGOING_PORT)  # this is for sending the similarity scores
     await loop_main()   # Enter the main loop of the program
     transport.close()   # Clean up the server
-    client.close()      # Clean up client
 
 
 if __name__ == "__main__":
