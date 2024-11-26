@@ -17,8 +17,8 @@ from bleak import BleakClient, BleakScanner
 from pythonosc import udp_client
 
 # the data can be sent simultaneously to multiple OSC receivers, for example to the osc2similarity.py script and to TouchDesigner
-OSC_HOST = ["localhost", "localhost"]
-OSC_PORT = [8000, 8001]
+OSC_HOST = ["127.0.0.1", "127.0.0.1"]
+OSC_PORT = [8000, 10000]
 
 # you can add multiple Polar H9 addresses here
 # for testing purposes you can also add the same Polar H9 address multiple times
@@ -99,6 +99,7 @@ class PolarClient:
               transmitted as uint8 or uint16 (necessary for bpm > 255)
         Acceleration and raw ECG only available via Polar SDK
         """
+        global clients
         bytes = list(data)
         hr = None
         ibis = []
