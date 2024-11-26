@@ -26,8 +26,7 @@ ADDRESS = []
 ADDRESS.append("818AFE80-3652-4DBA-5192-88128E5FAB3D")  # Robert
 # ADDRESS.append("C8BC000D-146F-6939-9C5F-9F657F308E1E")  # Sharon 1
 # ADDRESS.append("8023FA31-F440-FABA-5D50-8A64D06B1EC7")  # Sharon 2
-# ADDRESSES.append(...)
-# ADDRESSES.append(...)
+
 
 #############################################################################
 # no changes should be needed below this line
@@ -41,14 +40,13 @@ belts = []      # list of Polar H9 belts
 
 class PolarClient:
 
-    def __init__(self, address, index, scan=False):
+    def __init__(self, address, index, loop, scan=False):
         self.address = address      # the address is a string like 818AFE80-3652-4DBA-5192-88128E5FAB3D
         self.index = index          # the one-based index is used to distinguish between multiple belts/people
+        self.loop = loop
         self.previous_ibi = None    # the previous interbeat interval
 
         # BLE client
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
         self.ble_client = BleakClient(self.address, loop=self.loop)
 
         if scan:
@@ -73,7 +71,6 @@ class PolarClient:
 
     def start(self):
         asyncio.ensure_future(self.connect())
-        # self.loop.run_forever()
 
 
     def stop(self):
@@ -142,17 +139,22 @@ if __name__ == "__main__":
         clients.append(udp_client.SimpleUDPClient(host, port))
         print('Connected to OSC server')
 
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     # the following section connects multiple Polar H9 belts
     try:
         for addr, index in zip(ADDRESS, range(len(ADDRESS))):
             first = (index==0)  # only do the BLE scan for the first belt
-            belts.append(PolarClient(addr, index+1, scan=first))    # use a one-based index for the belts
+            belts.append(PolarClient(addr, index+1, loop, scan=first))    # use a one-based index for the belts
         for belt in belts:
             belt.start()
-        for belt in belts:
-            belt.loop.run_forever()
+        loop.run_forever()
     except (SystemExit, KeyboardInterrupt, RuntimeError):
         for belt in belts:
             belt.stop()
+    finally:
+        print("Closing event loop")
+        loop.close()
 
     sys.exit()
