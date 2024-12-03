@@ -13,7 +13,9 @@ You should have received a copy of the GNU General Public License along with thi
 
 import sys
 import asyncio
+import time
 from bleak import BleakClient, BleakScanner
+from bleak.exc import BleakDeviceNotFoundError, BleakError, BleakCharacteristicNotFoundError, BleakDBusError
 from pythonosc import udp_client
 
 # the data can be sent simultaneously to multiple OSC receivers, for example to the osc2similarity.py script and to TouchDesigner
@@ -23,9 +25,10 @@ OSC_PORT = [8000, 10000]
 # you can add multiple Polar H9 addresses here
 # for testing purposes you can also add the same Polar H9 address multiple times
 ADDRESS = []
-ADDRESS.append("818AFE80-3652-4DBA-5192-88128E5FAB3D")  # Robert
-# ADDRESS.append("C8BC000D-146F-6939-9C5F-9F657F308E1E")  # Sharon 1
-# ADDRESS.append("8023FA31-F440-FABA-5D50-8A64D06B1EC7")  # Sharon 2
+ADDRESS.append("818AFE80-3652-4DBA-5192-88128E5FAB3D")  # Robert 1
+ADDRESS.append("9AF753FF-64EC-147C-B266-6F078C7BF5AE")  # Robert 2
+ADDRESS.append("C8BC000D-146F-6939-9C5F-9F657F308E1E")  # Sharon 1
+ADDRESS.append("8023FA31-F440-FABA-5D50-8A64D06B1EC7")  # Sharon 2
 
 
 #############################################################################
@@ -47,7 +50,7 @@ class PolarClient:
         self.previous_ibi = None    # the previous interbeat interval
 
         # BLE client
-        self.ble_client = BleakClient(self.address, loop=self.loop)
+        self.ble_client = BleakClient(self.address, loop=self.loop, disconnected_callback=self.reconnect)
 
         if scan:
             # show a list of all available devices, only needed once
@@ -62,21 +65,34 @@ class PolarClient:
         print("=====================================================")
 
 
-    async def connect(self):
-        print("Trying to connect to Polar belt {0} ...".format(self.address))
-        await self.ble_client.connect()
-        await self.ble_client.start_notify(UUID_HEARTRATE, self.data_handler)
-        print("Connected to Polar belt")
-
-
     def start(self):
         asyncio.ensure_future(self.connect())
 
 
+    async def connect(self):
+        try:
+            print("Trying to connect to Polar belt {0}: {1} ...".format(self.index, self.address))
+            await self.ble_client.connect()
+            await self.ble_client.start_notify(UUID_HEARTRATE, self.data_handler)
+            print("Connected to connect to Polar belt {0}".format(self.index))
+        except BleakDeviceNotFoundError:
+            print("Cannot connect to Polar belt {0}".format(self.index))
+            # try connecting again after a delay
+            await asyncio.sleep(3)
+            self.start()
+
+
+    def reconnect(self, client):
+        print("Disconnected from Polar belt {0}: {1} ...".format(self.index, self.address))
+        # try reconnecting again after a delay
+        # ...
+
+
     def stop(self):
+        print("Stopping Polar belt {0}: {1} ...".format(self.index, self.address))
         asyncio.ensure_future(self.ble_client.stop_notify(UUID_HEARTRATE))
         asyncio.ensure_future(self.ble_client.disconnect())
-        print("Disconnected from Polar belt {0} ...".format(self.address))
+        print("Stopped Polar belt {0}".format(self.index))
 
 
     def data_handler(self, sender, data):  # sender is unused but required by Bleak API
@@ -113,7 +129,7 @@ class PolarClient:
         print("belt={0}, hr={1}, ibis={2}".format(self.index, hr, ibis))
 
         # send the heart rate data to the OSC receivers
-        if hr:
+        if hr and hr>0:
             oscaddress = "/polar/{0}/hr".format(self.index)
             for recipient in clients:
                 recipient.send_message(oscaddress, hr)
