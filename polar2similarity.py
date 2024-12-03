@@ -54,8 +54,9 @@ def similarity(x):
         s = s / np.sum(s)                                   # normalize the singular values
         return s.tolist()                                   # return as a plain Python list with floats
     except:
-        # the algorithm below does not work with only one time series
-        # the algorithm will also fail if the time series are too short
+        # the algorithm does not work with only a single time series
+        # the algorithm will also fail if the time series are still too short
+        print("error in similarity computation")
         s = np.ones(x.shape[0]).astype(np.float64)
         s = s / np.sum(s)                                   # normalize the singular values
         return s.tolist()
