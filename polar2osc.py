@@ -13,9 +13,8 @@ You should have received a copy of the GNU General Public License along with thi
 
 import sys
 import asyncio
-import time
 from bleak import BleakClient, BleakScanner
-from bleak.exc import BleakDeviceNotFoundError, BleakError, BleakCharacteristicNotFoundError, BleakDBusError
+from bleak.exc import BleakDeviceNotFoundError
 from pythonosc import udp_client
 
 # the data can be sent simultaneously to multiple OSC receivers, for example to the osc2similarity.py script and to TouchDesigner
@@ -74,18 +73,19 @@ class PolarClient:
             print("Trying to connect to Polar belt {0}: {1} ...".format(self.index, self.address))
             await self.ble_client.connect()
             await self.ble_client.start_notify(UUID_HEARTRATE, self.data_handler)
-            print("Connected to connect to Polar belt {0}".format(self.index))
+            print("Connected to Polar belt {0}".format(self.index))
         except BleakDeviceNotFoundError:
             print("Cannot connect to Polar belt {0}".format(self.index))
-            # try connecting again after a delay
-            await asyncio.sleep(3)
+            # wait for some time and try connecting again
+            await asyncio.sleep(5)
             self.start()
 
 
     def reconnect(self, client):
         print("Disconnected from Polar belt {0}: {1} ...".format(self.index, self.address))
-        # try reconnecting again after a delay
-        # ...
+        # create a new client and try connecting again
+        self.ble_client = BleakClient(self.address, loop=self.loop, disconnected_callback=self.reconnect)
+        self.start()
 
 
     def stop(self):
@@ -129,23 +129,26 @@ class PolarClient:
         print("belt={0}, hr={1}, ibis={2}".format(self.index, hr, ibis))
 
         # send the heart rate data to the OSC receivers
-        if hr and hr>0:
-            oscaddress = "/polar/{0}/hr".format(self.index)
-            for recipient in clients:
-                recipient.send_message(oscaddress, hr)
-        for ibi in ibis:
-            oscaddress = "/polar/{0}/ibi".format(self.index)
-            for recipient in clients:
-                recipient.send_message(oscaddress, ibi)
-    
-            # compute the heart rate variability (HRV) in milliseconds
-            if self.previous_ibi:
-                hrv = abs(ibi - self.previous_ibi)
-                oscaddress = "/polar/{0}/hrv".format(self.index)
+        if hr:
+            if hr>40 and hr<180:  # ignore unrealistic values
+                oscaddress = "/polar/{0}/hr".format(self.index)
                 for recipient in clients:
-                    recipient.send_message(oscaddress, hrv)
-            # remember the current interbeat interval for the next iteration
-            self.previous_ibi = ibi
+                    recipient.send_message(oscaddress, hr)
+
+        for ibi in ibis:
+            if ibi>333 and ibi<1500:  # ignore unrealistic values
+                oscaddress = "/polar/{0}/ibi".format(self.index)
+                for recipient in clients:
+                    recipient.send_message(oscaddress, ibi)
+        
+                # compute the heart rate variability (HRV) in milliseconds
+                if self.previous_ibi:
+                    hrv = abs(ibi - self.previous_ibi)
+                    oscaddress = "/polar/{0}/hrv".format(self.index)
+                    for recipient in clients:
+                        recipient.send_message(oscaddress, hrv)
+                # remember the current interbeat interval for the next iteration
+                self.previous_ibi = ibi
     
 
 if __name__ == "__main__":
